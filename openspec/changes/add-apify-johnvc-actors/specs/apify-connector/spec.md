@@ -42,10 +42,15 @@ the actor's verified published default; page caps the actor documents as
 estimate only when their input switches them on, at the D24 floor 0 where
 the quantity is unknowable pre-run.
 
-#### Scenario: Mode selects the line
+#### Scenario: Mode selects the line, held at the actor's per-image minimum
 - **WHEN** `apify#johnvc/google-lens-api` is estimated with
-  `search_type: "products"`, two `image_upload` entries and `max_results: 5`
-- **THEN** the evidence is `{product_match_returned: 10, default_dataset_item: 10}`
+  `search_type: "exact_matches"`, two `image_upload` entries and `max_results: 5`
+- **THEN** the evidence is `{exact_match_returned: 80, default_dataset_item: 10}`
+  (40 billed per image, the actor's minimum)
+
+#### Scenario: A retired mode is rejected before the wire
+- **WHEN** `apify#johnvc/google-lens-api` runs with `search_type: "products"`
+- **THEN** the run fails INVALID_INPUT before any wire call
 
 #### Scenario: Pre-charged cap is the estimate and the evidence
 - **WHEN** `apify#johnvc/us-congress-financial-disclosures-and-stock-trading-data` runs with

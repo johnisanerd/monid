@@ -1,4 +1,5 @@
 import { defineEndpoint, Unit, UsageModelKind } from "@shared/core";
+import { z } from "zod";
 import { zGoogleLensApiBody } from "./schema/inputs.ts";
 import { zGoogleLensApiOutput } from "./schema/output.ts";
 
@@ -25,9 +26,15 @@ export default defineEndpoint({
         docsUrl: "https://apify.com/johnvc/google-lens-api",
         categories: ["image-search"],
         notes: [
-            "search_type selects the billed line (visual_matches, products, " +
-            "or exact_matches); images are read from exactly one of " +
+            "search_type selects the billed line (visual_matches or " +
+            "exact_matches); images are read from exactly one of " +
             "image_upload, image_base64, or image_url.",
+            "Every billed lookup pays a per-image minimum (50 visual matches, " +
+            "40 exact matches), an empty lookup included; a lookup the " +
+            "vendor fails bills nothing (actor 1.1.0, 2026-10-07).",
+            "The products search type is retired: Google discontinued the " +
+            "Lens Products view in October 2026 (actor 1.1.1), so it is " +
+            "rejected at the binding.",
         ],
     },
     /** PUBLIC identity (design D22): the actor's own owner/slug path,
@@ -41,9 +48,12 @@ export default defineEndpoint({
     input: {
         schema: {
             body: zGoogleLensApiBody.extend({
-                // the mode switch and the limiting knob at the actor's
-                // VERIFIED published defaults (D25)
-                search_type: zGoogleLensApiBody.shape.search_type.unwrap()
+                // the mode switch, NARROWED at the binding: `products` is
+                // retired upstream (Google discontinued the Lens Products
+                // view, October 2026 — the actor's own event text, 1.1.1)
+                // and would only return an error row; the limiting knob at
+                // the actor's VERIFIED published default (D25)
+                search_type: z.enum(["visual_matches", "exact_matches"])
                     .default("visual_matches"),
                 max_results: zGoogleLensApiBody.shape.max_results.unwrap()
                     .default(50),
@@ -71,15 +81,6 @@ export default defineEndpoint({
                     // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-09-22
                     consumes: { credit: "default", amount: 0.0002 },
                 },
-                product_match_returned: {
-                    kind: UsageModelKind.PER_UNIT,
-                    unit: Unit.RESULT,
-                    label: "product matches",
-                    description: "search_type products",
-                    // vendor charge event: "product_match_returned"
-                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-09-22
-                    consumes: { credit: "default", amount: 0.00065 },
-                },
                 exact_match_returned: {
                     kind: UsageModelKind.PER_UNIT,
                     unit: Unit.RESULT,
@@ -102,43 +103,77 @@ export default defineEndpoint({
                 },
             },
         },
+        /** Per-image minimum (actor 1.1.0): every billed lookup pays at
+         *  least 50 visual / 40 exact results, so a request below the floor
+         *  is estimated at the floor. */
         estimate: ({ data }) => {
             const body = data.input.body;
             // one image door: uploads, else base64 entries, else the URL
             const images = (body.image_upload?.length ?? 0) ||
                 (body.image_base64?.length ?? 0) ||
                 (body.image_url ? 1 : 0);
-            const matches = body.max_results * images;
-            const counts = { default_dataset_item: matches };
-            if (body.search_type === "products") {
-                return {
-                    counts: { ...counts, product_match_returned: matches },
-                };
-            }
-            if (body.search_type === "exact_matches") {
-                return { counts: { ...counts, exact_match_returned: matches } };
-            }
-            return { counts: { ...counts, visual_match_returned: matches } };
+            const exact = body.search_type === "exact_matches";
+            const floor = exact ? 40 : 50;
+            const billed = Math.max(body.max_results, floor) * images;
+            const rows = body.max_results * images;
+            return {
+                counts: exact
+                    ? {
+                        exact_match_returned: billed,
+                        default_dataset_item: rows,
+                    }
+                    : {
+                        visual_match_returned: billed,
+                        default_dataset_item: rows,
+                    },
+            };
         },
-        /** OVERRIDES the provider evidence (per-line story for this card). */
+        /** OVERRIDES the provider evidence: per image, max(rows, floor) —
+         *  the actor tops an under-floor or empty lookup up to the minimum
+         *  (src/main.py:329-346), while a failed lookup (its error row)
+         *  bills nothing. Images seen in rows are grouped by queryImage;
+         *  images with no row at all are empty lookups at the floor unless
+         *  an error row accounts for them. */
         evidence: ({ data, utils }) => {
             const rows = Array.isArray(data.output) ? data.output : [];
             const body = data.input.body ?? {};
-            const mode = utils.json.optionalGet(body, "$.search_type") ??
-                "visual_matches";
-            const billed = rows.filter((row) =>
+            const exact = utils.json.optionalGet(body, "$.search_type") ===
+                "exact_matches";
+            const floor = exact ? 40 : 50;
+            const matches = rows.filter((row) =>
                 utils.json.optionalGet(row, "$.resultType") !== "error"
-            ).length;
-            const counts = { default_dataset_item: rows.length };
-            if (mode === "products") {
-                return {
-                    counts: { ...counts, product_match_returned: billed },
-                };
+            );
+            const errors = rows.length - matches.length;
+            const images = matches.map((row) =>
+                utils.json.optionalStr(row, "$.queryImage") ?? ""
+            );
+            const seen = images.filter((image, i) =>
+                images.indexOf(image) === i
+            );
+            let billed = 0;
+            for (const image of seen) {
+                const delivered = images.filter((x) => x === image).length;
+                billed += Math.max(delivered, floor);
             }
-            if (mode === "exact_matches") {
-                return { counts: { ...counts, exact_match_returned: billed } };
-            }
-            return { counts: { ...counts, visual_match_returned: billed } };
+            const requested = (utils.json.optionalLen(body, "$.image_upload") ??
+                0) ||
+                (utils.json.optionalLen(body, "$.image_base64") ?? 0) ||
+                (utils.json.optionalStr(body, "$.image_url") !== undefined
+                    ? 1
+                    : 0);
+            const unseen = Math.max(0, requested - seen.length - errors);
+            billed += unseen * floor;
+            return {
+                counts: exact
+                    ? {
+                        exact_match_returned: billed,
+                        default_dataset_item: rows.length,
+                    }
+                    : {
+                        visual_match_returned: billed,
+                        default_dataset_item: rows.length,
+                    },
+            };
         },
     },
 });

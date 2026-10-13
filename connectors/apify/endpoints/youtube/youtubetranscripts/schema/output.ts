@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * johnvc/YoutubeTranscripts — dataset ITEM schema, scaffolded from the actor's
- * PUBLISHED storages.dataset.fields on 2026-09-22 via
+ * PUBLISHED storages.dataset.fields on 2026-10-13 via
  * scripts/apify-scaffold.ts. Passthrough DOCUMENTATION (design D29):
  * non-strict, every field optional ("required" stripped) — output
  * validation can never fail a paid run over vendor drift; the drift

@@ -22,19 +22,21 @@ export default defineEndpoint({
             "and optionally transcribes them. Picks the first available " +
             "language from an ordered list, can translate to another " +
             "language, and returns plain text with optional SRT/VTT/JSON " +
-            "formats and video metadata (title, channel, duration, views). " +
-            "One row per video. For a single video URL with timestamps, " +
-            "prefer apify#starvibe/youtube-video-transcript; use this " +
-            "endpoint for bulk URL lists, channel listing, language " +
-            "fallback, and optional translation.",
+            "formats and video metadata (title, channel, duration, views, " +
+            "and optionally extended fields such as like count and upload " +
+            "date). One row per video. For a single video URL with " +
+            "timestamps, prefer apify#starvibe/youtube-video-transcript; " +
+            "use this endpoint for bulk URL lists, channel listing, " +
+            "language fallback, and optional translation.",
         docsUrl: "https://apify.com/johnvc/YoutubeTranscripts",
         categories: ["youtube"],
         notes: [
-            "Billing is per video processed: a transcript fetch is one " +
-            "videoprocessed event, and the metadata fetch " +
-            "(include_metadata, on by default) is a second videoprocessed " +
-            "event per video; list_only runs and channel listing rows are " +
-            "free (actor source, 2026-09-22).",
+            "Billing is per video transcribed (videoprocessed); basic " +
+            "metadata (include_metadata) rides the same fetch for free, " +
+            "while include_extended_metadata adds one videometadata event " +
+            "per video whose extra lookup succeeds. list_only runs, channel " +
+            "listing rows, and no-captions rows are free (actor 0.5.123, " +
+            "2026-10-13).",
             "Hard caps: 100 URLs per run and 1000 listed videos per " +
             "channel.",
             "youtube_url and channel each accept a single string or an " +
@@ -57,11 +59,13 @@ export default defineEndpoint({
         schema: {
             body: zYoutubetranscriptsBody.extend({
                 // the actor's VERIFIED published defaults (schema `default`,
-                // 2026-09-22), materialized so the estimate can read them
+                // 2026-10-13), materialized so the estimate can read them
                 max_videos: zYoutubetranscriptsBody.shape.max_videos.unwrap()
                     .default(100),
                 include_metadata: zYoutubetranscriptsBody.shape.include_metadata
                     .unwrap().default(true),
+                include_extended_metadata: zYoutubetranscriptsBody.shape
+                    .include_extended_metadata.unwrap().default(false),
                 channel_transcripts: zYoutubetranscriptsBody.shape
                     .channel_transcripts.unwrap().default(false),
                 list_only: zYoutubetranscriptsBody.shape.list_only.unwrap()
@@ -85,29 +89,36 @@ export default defineEndpoint({
                     kind: UsageModelKind.PER_CALL,
                     label: "actor start",
                     // vendor charge event: "apify-actor-start"
-                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-09-22
+                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-10-13
                     consumes: { credit: "default", amount: 0.00001 },
                 },
                 videoprocessed: {
                     kind: UsageModelKind.PER_UNIT,
                     unit: Unit.RESULT,
-                    label: "videos processed",
-                    description:
-                        "one per transcript fetched, plus one per metadata fetch " +
-                        "when include_metadata is on",
+                    label: "videos transcribed",
                     // vendor charge event: "videoprocessed"
-                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-09-22
-                    consumes: { credit: "default", amount: 0.00001 },
+                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-10-13
+                    // (repriced 2026-10-13)
+                    consumes: { credit: "default", amount: 0.002 },
+                },
+                videometadata: {
+                    kind: UsageModelKind.PER_UNIT,
+                    unit: Unit.RESULT,
+                    label: "extended metadata lookups",
+                    description: "one per video whose " +
+                        "include_extended_metadata lookup succeeds",
+                    // vendor charge event: "videometadata"
+                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-10-13
+                    consumes: { credit: "default", amount: 0.003 },
                 },
                 default_dataset_item: {
                     kind: UsageModelKind.PER_UNIT,
                     unit: Unit.RESULT,
                     label: "stored rows",
-                    description:
-                        "the platform's per-row dataset charge — every pushed " +
-                        "row, error rows included",
+                    description: "the platform's per-row dataset charge — " +
+                        "every pushed row, error rows included",
                     // vendor charge event: "apify-default-dataset-item"
-                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-09-22
+                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-10-13
                     consumes: { credit: "default", amount: 0.00001 },
                 },
             },
@@ -126,11 +137,15 @@ export default defineEndpoint({
             const transcribed = body.list_only
                 ? 0
                 : urls + (body.channel_transcripts ? listed : 0);
-            const perVideo = body.include_metadata ? 2 : 1;
+            // the extended lookup is promised per transcribed video when its
+            // switch is on (and include_metadata, which it extends, is on)
+            const extended = body.include_extended_metadata &&
+                body.include_metadata;
             return {
                 counts: {
-                    videoprocessed: transcribed * perVideo,
+                    videoprocessed: transcribed,
                     default_dataset_item: urls + listed,
+                    ...(extended ? { videometadata: transcribed } : {}),
                 },
             };
         },
@@ -138,22 +153,28 @@ export default defineEndpoint({
         evidence: ({ data, utils }) => {
             const rows = Array.isArray(data.output) ? data.output : [];
             const body = data.input.body ?? {};
-            // transcript rows bill; error rows, truncated rows and the
-            // uncharged channel listing rows (result_type channel_video)
-            // do not (src/main.py:800-804, :848, :923 — 2026-09-22)
-            const billed = rows.filter((row) =>
+            // transcript rows bill; error rows (incl. no-captions rows),
+            // truncated rows and the uncharged channel listing rows
+            // (result_type channel_video) do not (src/main.py:794, :1086,
+            // :1371-1386, :1524-1529 — 2026-10-13)
+            const transcribed = rows.filter((row) =>
                 utils.json.optionalGet(row, "$.error") !== true &&
                 utils.json.optionalGet(row, "$.truncated") !== true &&
                 utils.json.optionalGet(row, "$.result_type") !== "channel_video"
+            );
+            // a successful extended lookup stamps metadata_source "yt-dlp"
+            // (src/main.py:1247-1290)
+            const extended =
+                utils.json.optionalGet(body, "$.include_extended_metadata") ===
+                    true;
+            const enriched = transcribed.filter((row) =>
+                utils.json.optionalGet(row, "$.metadata_source") === "yt-dlp"
             ).length;
-            const perVideo =
-                utils.json.optionalGet(body, "$.include_metadata") === false
-                    ? 1
-                    : 2;
             return {
                 counts: {
-                    videoprocessed: billed * perVideo,
+                    videoprocessed: transcribed.length,
                     default_dataset_item: rows.length,
+                    ...(extended ? { videometadata: enriched } : {}),
                 },
             };
         },

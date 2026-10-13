@@ -50,9 +50,15 @@
       version:check · catalog smoke · estimate spot-checks against the
       published cards
 
-## 6. Follow-ups
+## 6. Review follow-ups (Monid drill, 2026-10-12)
 
-- [ ] 6.1 Tranche 2 (rated 10–29 u30, earnings-call transcripts, and the
+- [x] 6.0 hotels: a `property_token` lookup settles one page (D8); lens:
+      `products` retired, per-image minimum modeled (D7); YouTube card of
+      2026-10-13 modeled; App Store `review` repinned ($0.00125, 2026-09-28)
+
+## 7. Follow-ups
+
+- [ ] 7.1 Tranche 2 (rated 10–29 u30, earnings-call transcripts, and the
       held-back Tier-A actors)
-- [ ] 6.2 Gap-fill tranche (ATS family and other actors with no Monid
+- [ ] 7.2 Gap-fill tranche (ATS family and other actors with no Monid
       equivalent)

@@ -123,9 +123,10 @@ const CHAIN_COUNTS: Record<string, Record<string, number>> = {
         page_processed: 1,
         default_dataset_item: 2,
     },
-    // search_type visual_matches (binding default) selects the line
+    // search_type visual_matches (binding default) selects the line; the
+    // actor's per-image minimum (50 visual) tops the 2 rows up to 50
     "johnvc/google-lens-api": {
-        visual_match_returned: 2,
+        visual_match_returned: 50,
         default_dataset_item: 2,
     },
     // no dataCid in the input → the location lookup billed once
@@ -856,15 +857,25 @@ Deno.test("apify estimates: johnvc archetype spot checks", async () => {
 
 Deno.test("apify estimates: johnvc D29 gating spot checks (input-switched lines)", async () => {
     // Google Lens: search_type SELECTS the billed line; images come through
-    // one door (uploads win over base64 over the URL) — 2 uploads × 5
+    // one door (uploads win over base64 over the URL); a request below the
+    // actor's per-image minimum (40 exact) is held at the floor — 2 uploads
+    // × max(5, 40) = 80 billed, 10 rows
     assertEquals(
         (await estimateFor("apify#johnvc/google-lens-api", {
             image_upload: ["f1", "f2"],
             image_url: "https://example.com/ignored.jpg",
-            search_type: "products",
+            search_type: "exact_matches",
             max_results: 5,
         })).evidence,
-        { product_match_returned: 10, default_dataset_item: 10 },
+        { exact_match_returned: 80, default_dataset_item: 10 },
+    );
+    // …and above the floor the request itself is the estimate (60 visual)
+    assertEquals(
+        (await estimateFor("apify#johnvc/google-lens-api", {
+            image_url: "https://example.com/a.jpg",
+            max_results: 60,
+        })).evidence,
+        { visual_match_returned: 60, default_dataset_item: 60 },
     );
     // Google Flights: fetch_booking_options promises the option line at the
     // D24 floor 0 (unknowable pre-run); off (the default) → no line
@@ -910,13 +921,26 @@ Deno.test("apify estimates: johnvc D29 gating spot checks (input-switched lines)
             setup: 1,
         },
     );
-    // YouTube transcripts: include_metadata (the actor's default) bills a
-    // second videoprocessed per video; list_only bills none
+    // YouTube transcripts: basic metadata (the actor's default) is free;
+    // include_extended_metadata promises one videometadata per video;
+    // list_only bills none
     assertEquals(
         (await estimateFor("apify#johnvc/youtubetranscripts", {
             youtube_url: ["https://youtu.be/a", "https://youtu.be/b"],
         })).evidence,
-        { videoprocessed: 4, default_dataset_item: 2, actor_start: 1 },
+        { videoprocessed: 2, default_dataset_item: 2, actor_start: 1 },
+    );
+    assertEquals(
+        (await estimateFor("apify#johnvc/youtubetranscripts", {
+            youtube_url: ["https://youtu.be/a", "https://youtu.be/b"],
+            include_extended_metadata: true,
+        })).evidence,
+        {
+            videoprocessed: 2,
+            videometadata: 2,
+            default_dataset_item: 2,
+            actor_start: 1,
+        },
     );
     assertEquals(
         (await estimateFor("apify#johnvc/youtubetranscripts", {

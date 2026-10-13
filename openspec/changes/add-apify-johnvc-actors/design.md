@@ -67,3 +67,25 @@ the delivered rows and the page size (`ceil(rows / 10)`, `num`), capped by
 the input. This under-bills a trailing empty page — the same documented
 residual class as the provider's lagging-total posture
 (`provider.ts:40-43`) — and the doc `notes` say so.
+
+## D7 — A per-image minimum is a counting rule, not a model shape
+
+`google-lens-api` 1.1.0 (2026-10-07) bills every lookup at least 50 visual /
+40 exact results, an empty lookup included, by topping the count up
+(`src/main.py:329-346`); a failed lookup bills nothing. Estimate and
+evidence apply `max(rows, floor)` per image (D19: conditions are counting
+rules owned by the quantity fns, never model shapes). The retired `products`
+mode (Google discontinued the Lens Products view, October 2026; actor 1.1.1)
+is rejected at the binding and its still-published event sits in the drift
+suite's EXCLUDED map with that reason.
+
+## D8 — Evidence follows the maintainers' drill
+
+Two settle rules were corrected from Monid's GOLD-account drill
+(2026-10-12): a `property_token` lookup on `google-hotels-search-scraper`
+pushes one row with `property_details` and empty `properties`/`ads` and IS
+charged one page, so the empty-page exclusion requires all three; and the
+YouTube card moved on 2026-10-13 (videoprocessed $0.002, a separate
+`videometadata` line for `include_extended_metadata`, basic metadata free),
+so the doc models the new card instead of the metadata fallback.
+

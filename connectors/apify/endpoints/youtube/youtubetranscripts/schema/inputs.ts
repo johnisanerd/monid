@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * johnvc/YoutubeTranscripts — actor input schema, scaffolded from the actor's PUBLISHED
  * input schema (GET /v2/acts/johnvc~YoutubeTranscripts/builds/default →
- * actorDefinition.input) on 2026-09-22 via scripts/apify-scaffold.ts; curated
+ * actorDefinition.input) on 2026-10-13 via scripts/apify-scaffold.ts; curated
  * by hand thereafter (re-run the script to refresh; the drift suite
  * flags divergence — deno task drift). Non-strict by policy: the actor
  * accepts supersets — unknown fields pass through.
@@ -32,7 +32,10 @@ export const zYoutubetranscriptsBody = z.object({
         "If true, do NOT fetch any transcript. Instead, for each URL return the list of all available transcripts with their language code, generated/manual status, is_translatable flag, and translation_languages. Useful for discovering what languages exist before picking one. Not charged as a videoproces...",
     ).optional(),
     include_metadata: z.boolean().describe(
-        "If true, also fetch video metadata via yt-dlp: title, description, channel_name, channel_id, channel_url, view_count, like_count, video_duration_seconds, upload_date, thumbnail_url, tags, categories, availability, was_live. Adds about 1-3 seconds per video. Successful metadata is charged as a vid...",
+        "If true, attach video metadata from the same YouTube response that carries the captions: title, description, channel_name, channel_id, channel_url, view_count, video_duration_seconds, thumbnail_url, tags, was_live. No extra request and not charged. For like_count, upload_date, categories and avai...",
+    ).optional(),
+    include_extended_metadata: z.boolean().describe(
+        "If true, run a second lookup per video for the fields the caption response does not carry: like_count, upload_date, categories, availability. Adds about 1-3 seconds per video and is charged as a videometadata event when it succeeds; if it fails, the transcript and the basic metadata are still ret...",
     ).optional(),
     // curated: published type ["string","array"] — one channel or a list
     channel: z.union([z.string(), z.array(z.string())]).describe(
@@ -43,5 +46,8 @@ export const zYoutubetranscriptsBody = z.object({
     ).optional(),
     channel_transcripts: z.boolean().describe(
         "If true, every video listed from the channel(s) is also queued for transcript extraction (newest first, deduplicated against youtube_url entries, subject to the 100 videos per run limit). Each successful transcript is charged as a videoprocessed event, exactly like videos passed via youtube_url. ...",
+    ).optional(),
+    max_age_days: z.number().int().describe(
+        "Leave this unset. The default of 90 returns a recently fetched transcript from our cache when one exists, which is faster and identical to a fresh fetch. Set a lower number of days only when you need a newer copy: it is the oldest cached copy you will accept. Use 0 only when a guaranteed fresh fe...",
     ).optional(),
 });

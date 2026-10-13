@@ -166,12 +166,16 @@ export default defineEndpoint({
             const mode = utils.json.optionalGet(body, "$.search_type") ??
                 "search";
             // error rows and the empty page a zero-result search pushes
-            // (properties and ads both empty) are not charged
-            // (src/main.py:1660-1695, 2026-09-22)
+            // (properties and ads both empty, no property_details) are not
+            // charged; a property_token lookup pushes one row with
+            // property_details and empty properties/ads and IS charged one
+            // page (src/main.py:1483-1527, :1660-1695; Monid drill 2026-10-12)
             const billed = rows.filter((row) =>
                 utils.json.optionalGet(row, "$.error") !== true &&
                 !(utils.json.optionalLen(row, "$.properties") === 0 &&
-                    (utils.json.optionalLen(row, "$.ads") ?? 0) === 0)
+                    (utils.json.optionalLen(row, "$.ads") ?? 0) === 0 &&
+                    utils.json.optionalGet(row, "$.property_details") ===
+                        undefined)
             ).length;
             const counts = { default_dataset_item: rows.length };
             if (mode === "autocomplete") {

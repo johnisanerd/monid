@@ -56,6 +56,12 @@ const GB_EVENT = /(^|[-_])gb$/;
  *  model, each with its reviewed reason. Anything published, unmodeled
  *  and not listed here is a `coverage` finding. */
 const EXCLUDED: Record<string, Record<string, string>> = {
+    "apify#johnvc/google-lens-api": {
+        "product_match_returned": "Google discontinued the Lens Products " +
+            "view in October 2026 (the actor's own event text, 1.1.1): the " +
+            "products search type only returns an error row, so the binding " +
+            "rejects it and the line can never fire",
+    },
     "apify#apify/facebook-pages-scraper": {
         "page": 'the "Page (Standby API)" event — a same-price twin ' +
             "charged only on the Standby API surface, unreachable via " +

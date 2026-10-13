@@ -87,8 +87,9 @@ export default defineEndpoint({
                     unit: Unit.RESULT,
                     label: "reviews",
                     // vendor charge event: "review"
-                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-09-22
-                    consumes: { credit: "default", amount: 0.0015 },
+                    // Business-tier (GOLD) price, /v2/acts pricingInfo 2026-10-13
+                    // (repriced 2026-09-28)
+                    consumes: { credit: "default", amount: 0.00125 },
                 },
                 default_dataset_item: {
                     kind: UsageModelKind.PER_UNIT,
